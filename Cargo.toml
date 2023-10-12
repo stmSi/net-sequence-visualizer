@@ -1,5 +1,5 @@
 [package]
-name = "net-sequence-sniffer"
+name = "net-sequence-visualizer"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.23.0"
+httparse = "1.8.0"
 pcap = { version = "1.1.0", features = ["all-features"] }
 pnet = { version = "0.34.0", features = ["pcap"] }
-rtshark = "2.7.0"

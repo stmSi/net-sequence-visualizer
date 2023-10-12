@@ -496,15 +496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chrono"
-version = "0.4.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "4.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1148,6 +1139,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "httparse"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d897f394bad6a705d5f4104762e116a75639e470d80901eed05a860a95cb1904"
+
+[[package]]
 name = "idna"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1429,13 +1426,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "net-sequence-sniffer"
+name = "net-sequence-visualizer"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "httparse",
  "pcap",
  "pnet",
- "rtshark",
 ]
 
 [[package]]
@@ -1890,15 +1887,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quick-xml"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eff6510e86862b57b210fd8cbe8ed3f0d7d600b9c2863cd4549a2e033c66e956"
-dependencies = [
- "memchr",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1980,16 +1968,6 @@ name = "regex-syntax"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3cbb081b9784b07cceb8824c8583f86db4814d172ab043f3c23f7dc600bf83d"
-
-[[package]]
-name = "rtshark"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ee5fccf9aa61722c9db33a884c4e625ad51adad212415757d5626b19d51d01d"
-dependencies = [
- "chrono",
- "quick-xml",
-]
 
 [[package]]
 name = "rustix"
