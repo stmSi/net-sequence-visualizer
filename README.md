@@ -1,4 +1,4 @@
-## NetSequenceVisualizer
+## NetSequenceVisualizer (WIP)
 
 To visualize the HTTP/RESTful network services interactions.
 

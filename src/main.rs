@@ -13,8 +13,6 @@ use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::tcp::TcpPacket;
 use pnet::packet::Packet;
-// Define a type for a unique key per TCP stream
-type StreamKey = (IpAddr, IpAddr, u16, u16);
 
 struct AppState {
     devices: Vec<Device>,
@@ -23,19 +21,35 @@ struct AppState {
     devices_names: Vec<String>,
     selected_device_name: String,
     capture_started: Arc<AtomicBool>,
-    // tcp_streams: Arc<Mutex<Vec<TcpStream<'a>>>>,
-    captured_packets: Arc<Mutex<Vec<Arc<TcpPacket<'static>>>>>,
+    captured_packets: Arc<Mutex<Vec<Arc<PacketInfo<'static>>>>>,
 }
 
-// struct TcpStream<'a> {
-//     key: StreamKey,
-//     tcp_packet: TcpPacket<'a>,
-// }
+struct PacketInfo<'a> {
+    src_ip: IpAddr,
+    dest_ip: IpAddr,
+    src_port: u16,
+    dest_port: u16,
+    tcp_packet: TcpPacket<'a>,
+}
 
+impl Default for AppState {
+    fn default() -> Self {
+        let (devices, device_to_ips) = list_devices();
+        Self {
+            devices_names: devices.iter().map(|d| d.name.clone()).collect(),
+            devices,
+            selected_device_name: String::new(),
+            capture_started: Arc::new(AtomicBool::new(false)),
+            captured_packets: Arc::new(Mutex::new(vec![])),
+            device_to_ips,
+            selected_ip: String::new(),
+        }
+    }
+}
 fn start_capture(
     selected_device_name: String,
     capture_started: Arc<AtomicBool>,
-    captured_packets: Arc<Mutex<Vec<Arc<TcpPacket<'static>>>>>,
+    captured_packets: Arc<Mutex<Vec<Arc<PacketInfo<'static>>>>>,
 ) {
     // use pcap to capture packets
     let cap = match pcap::Capture::from_device(selected_device_name.as_str()) {
@@ -54,23 +68,10 @@ fn start_capture(
         }
     };
 
-    // set the capture filter
-    // let filter = "tcp";
-
-    // match cap.filter(filter, false) {
-    //     Ok(_) => println!("Capture filter set to: {}", filter),
-    //     Err(e) => {
-    //         eprintln!("Error: {}", e);
-    //         return;
-    //     }
-    // }
-
-    println!("Starting capture");
-    // loop over the captured packets
-
+    println!("Starting capture on {}", selected_device_name);
     loop {
         // check if the capture has been stopped
-        if capture_started.load(std::sync::atomic::Ordering::Relaxed) == false {
+        if !capture_started.load(std::sync::atomic::Ordering::Relaxed) {
             println!("Capture stopped");
             break;
         }
@@ -83,8 +84,6 @@ fn start_capture(
         };
 
         // get the packet's TCP header
-        println!("------ Packet ------");
-        // Parse Ethernet frame
         let eth_packet = EthernetPacket::new(&packet_data).unwrap();
         let eth_packet_payload_data = eth_packet.payload().to_vec();
 
@@ -94,74 +93,59 @@ fn start_capture(
             if ip_packet.get_next_level_protocol() == IpNextHeaderProtocols::Tcp {
                 // Parse TCP packet
                 if let Some(tcp_packet) = TcpPacket::new(ip_packet.payload()) {
-                    println!(
-                        "Packet: {}:{} -> {}:{}, SEQ: {}",
-                        ip_packet.get_source(),
-                        tcp_packet.get_source(),
-                        ip_packet.get_destination(),
-                        tcp_packet.get_destination(),
-                        tcp_packet.get_sequence()
-                    );
-
-                    let shared_tcp_packet =
-                        Arc::new(TcpPacket::owned(tcp_packet.packet().to_vec()).unwrap());
-                    captured_packets
-                        .lock()
-                        .unwrap()
-                        .push(shared_tcp_packet.clone());
+                    let shared_tcp_packet = Arc::new(PacketInfo {
+                        src_ip: IpAddr::V4(ip_packet.get_source()),
+                        dest_ip: IpAddr::V4(ip_packet.get_destination()),
+                        src_port: tcp_packet.get_source(),
+                        dest_port: tcp_packet.get_destination(),
+                        tcp_packet: TcpPacket::owned(tcp_packet.packet().to_vec()).unwrap(),
+                    });
                     // Extract and print the payload
-                    let payload = shared_tcp_packet.payload();
-                    println!("Payload: {:?}", payload);
+                    let payload = tcp_packet.payload();
 
-                    if payload.len() > 0 {
+                    if !payload.is_empty() {
                         if let Ok(payload_str) = std::str::from_utf8(payload) {
-                            if payload_str.contains("HTTP") {
-                                println!("HTTP payload: {}", payload_str);
-                            }
+                            captured_packets
+                                .lock()
+                                .unwrap()
+                                .push(shared_tcp_packet.clone());
+
+                            println!("------ Packet ------");
+                            println!(
+                                "Packet: {}:{} -> {}:{}, SEQ: {}",
+                                ip_packet.get_source(),
+                                tcp_packet.get_source(),
+                                ip_packet.get_destination(),
+                                tcp_packet.get_destination(),
+                                tcp_packet.get_sequence()
+                            );
+                            println!("HTTP payload: {}", payload_str);
+                            println!("----------");
+                            println!();
                         }
                     }
                 }
             }
-        }
-        println!("----------");
-        println!();
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        let (devices, device_to_ips) = list_devices();
-        Self {
-            devices_names: devices.iter().map(|d| d.name.clone()).collect(),
-            devices,
-            selected_device_name: String::new(),
-            capture_started: Arc::new(AtomicBool::new(false)),
-            captured_packets: Arc::new(Mutex::new(vec![])),
-            device_to_ips,
-            selected_ip: String::new(),
         }
     }
 }
 
 impl AppState {
     fn network_interface_ui(&mut self, ui: &mut Ui) {
-        ui.label("Select a network device:");
-        // let selected_device_name = match self.selected_device_name.clone() {
-        //     Some(device_name) => device_name.to_string(),
-        //     None => "Selected None".to_string(),
-        // };
+        // ui.label("Select a network device:");
 
-        // New code to show IP addresses
-        for (device_name, ips) in &self.device_to_ips {
-            // ui.label(format!("Device: {}", device_name));
+        ui.set_min_height(300.0);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (device_name, ips) in &self.device_to_ips {
+                // ui.label(format!("Device: {}", device_name));
 
-            let selected_device = self.selected_device_name == *device_name;
+                let selected_device = self.selected_device_name == *device_name;
 
-            if ui.selectable_label(selected_device, device_name).clicked() {
-                self.selected_device_name = device_name.clone();
-                self.selected_ip = String::new();
-            }
-            // ui.indent("    ", |ui| {
+                if ui.selectable_label(selected_device, device_name).clicked() {
+                    self.selected_device_name = device_name.clone();
+                    self.selected_ip = String::new();
+                }
+                // ui.indent("    ", |ui| {
                 // Indent IPs under the device name
                 for ip in ips {
                     let selected_ip = self.selected_ip == *ip;
@@ -170,9 +154,9 @@ impl AppState {
                         self.selected_ip = ip.clone();
                     }
                 }
-            ui.separator();
-            // });
-        }
+                ui.separator();
+            }
+        });
 
         ComboBox::from_label(String::new())
             .selected_text({
@@ -209,37 +193,34 @@ impl AppState {
         } else {
             ui.label("Click to start capturing packets");
         }
-        if !self.selected_device_name.is_empty() {
-            if !self
+        if !self.selected_device_name.is_empty()
+            && !self
                 .capture_started
                 .load(std::sync::atomic::Ordering::Relaxed)
+            && ui
+                .button("Start")
+                .on_hover_text("Start capturing packets")
+                .clicked()
+        {
+            match self
+                .devices
+                .iter()
+                .find(|d| d.name == *self.selected_device_name)
             {
-                if ui
-                    .button("Start")
-                    .on_hover_text("Start capturing packets")
-                    .clicked()
-                {
-                    match self
-                        .devices
-                        .iter()
-                        .find(|d| d.name == *self.selected_device_name)
-                    {
-                        Some(_) => {
-                            self.capture_started
-                                .store(true, std::sync::atomic::Ordering::Relaxed);
+                Some(_) => {
+                    self.capture_started
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
 
-                            let captured_packets = self.captured_packets.clone();
-                            let device_name = self.selected_device_name.clone();
-                            let capture_started = self.capture_started.clone();
-                            thread::spawn(|| {
-                                start_capture(device_name, capture_started, captured_packets);
-                                println!("Starting capture");
-                            });
-                        }
-                        None => {
-                            eprintln!("Error: Selected Device not found");
-                        }
-                    }
+                    let captured_packets = self.captured_packets.clone();
+                    let device_name = self.selected_device_name.clone();
+                    let capture_started = self.capture_started.clone();
+
+                    thread::spawn(|| {
+                        start_capture(device_name, capture_started, captured_packets);
+                    });
+                }
+                None => {
+                    eprintln!("Error: Selected Device not found");
                 }
             }
         }
@@ -249,44 +230,46 @@ impl AppState {
 impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Grid::new("main_grid").num_columns(2).striped(true).show(ui, |ui| {
-                ui.heading("Network Sequence Visualizer");
-                ui.end_row();
-                ui.vertical(|ui| {
-                    self.network_interface_ui(ui);
+            egui::Grid::new("main_grid")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.heading("Network Sequence Visualizer");
+                    ui.end_row();
+
+                    ui.vertical(|ui| {
+                        self.network_interface_ui(ui);
+                    });
+
+                    ui.vertical(|ui| {
+                        ui.heading("Captured Packets");
+                        ui.separator();
+
+                        ui.push_id("captured_packets", |ui| {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                let captured_packets = self.captured_packets.lock().unwrap();
+                                for packet_info in captured_packets.iter().rev().take(100) {
+                                    let key_str = format!(
+                                        "{}:{} -> {}:{} : SEQ {}",
+                                        packet_info.src_ip,
+                                        packet_info.src_port,
+                                        packet_info.dest_ip,
+                                        packet_info.dest_port,
+                                        packet_info.tcp_packet.get_sequence()
+                                    );
+                                    ui.label(key_str).on_hover_text({
+                                        let payload = packet_info.tcp_packet.payload();
+                                        if payload.is_empty() {
+                                            "No payload".to_string()
+                                        } else {
+                                            String::from_utf8(payload.to_vec()).unwrap()
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                    });
                 });
-                // ui.end_row();
-                // // Second column
-                // ui.label("");  // Empty label to align with the first column
-                // ui.end_row();
-
-                ui.vertical(|ui| {
-                    ui.heading("Captured Packets");
-                    ui.separator();
-
-                    let captured_packets = self.captured_packets.lock().unwrap();
-                    for tcp_packet in captured_packets.iter() {
-                        let source_ip = tcp_packet.get_source();
-                        let dest_ip = tcp_packet.get_destination();
-                        let seq_number = tcp_packet.get_sequence();
-
-                        let key_str = format!("{} -> {} : SEQ {}", source_ip, dest_ip, seq_number);
-                        ui.label(key_str);
-                    }
-                }); 
-                // ui.heading("Captured Packets");
-                // ui.separator();
-                //
-                // let captured_packets = self.captured_packets.lock().unwrap();
-                // for tcp_packet in captured_packets.iter() {
-                //     let source_ip = tcp_packet.get_source();
-                //     let dest_ip = tcp_packet.get_destination();
-                //     let seq_number = tcp_packet.get_sequence();
-                //
-                //     let key_str = format!("{} -> {} : SEQ {}", source_ip, dest_ip, seq_number);
-                //     ui.label(key_str);
-                // }
-            });
         });
     }
 }
@@ -315,7 +298,11 @@ fn list_devices() -> (Vec<Device>, HashMap<String, Vec<String>>) {
 }
 
 fn main() {
-    let mut options = eframe::NativeOptions::default();
+    let mut options = eframe::NativeOptions {
+        maximized: true,
+        initial_window_size: Some(egui::Vec2::new(800.0, 600.0)),
+        ..Default::default()
+    };
     options.maximized = true;
     options.initial_window_size = Some(egui::Vec2::new(800.0, 600.0));
     let result = eframe::run_native(
